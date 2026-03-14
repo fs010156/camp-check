@@ -8,10 +8,10 @@ jobs:
   run-monitor:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4 # v3からv4に更新
+      - uses: actions/setup-python@v5 # v4からv5に更新
         with:
-          python-version: '3.10'
+          python-version: '3.12' # 最新のPythonに合わせました
       - name: Install dependencies
         run: |
           pip install playwright requests
@@ -20,4 +20,6 @@ jobs:
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          # 警告にあった「強制的にNode.js 24を使う設定」を念のため追加
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         run: python monitor.py
