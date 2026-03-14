@@ -2,43 +2,53 @@ import os
 import requests
 from playwright.sync_api import sync_playwright
 
-# LINE通知設定
+# --- 設定情報（GitHubのSecretsから読み込み） ---
 LINE_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_USER_ID = os.environ.get("LINE_USER_ID")
 
 def send_line(message):
+    """LINE公式アカウントを通じて通知を送信する"""
+    if not LINE_TOKEN or not LINE_USER_ID:
+        print("Error: LINE_TOKEN or LINE_USER_ID is not set.")
+        return
+    
     url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Authorization": f"Bearer {LINE_TOKEN}", "Content-Type": "application/json"}
-    payload = {"to": LINE_USER_ID, "messages": [{"type": "text", "text": message}]}
-    requests.post(url, headers=headers, json=payload)
+    headers = {
+        "Authorization": f"Bearer {LINE_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "to": LINE_USER_ID,
+        "messages": [{"type": "text", "text": message}]
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Failed to send LINE: {e}")
 
 def check_campsites():
     with sync_playwright() as p:
+        # ブラウザの起動（Headlessモード）
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
-        # --- 1. 成田ゆめ牧場 (4/4-5) ---
+        # --- 1. 成田ゆめ牧場 (4/4-5 監視) ---
+        # 条件：一般or電源のいずれかの行で、4/4と4/5の両方に「残0サイト」がないこと
         try:
+            print("Checking Narita Yume Farm...")
             page.goto("https://yumebokujo.revn.jp/camp/reserve/calendar", timeout=60000)
-            # 「4月4日」のセルのテキストを取得
-            target = page.locator("td", has_text="4月4日").first
-            if target and "満" not in target.inner_text():
-                send_line("【空きあり】成田ゆめ牧場 4/4に空きが出た可能性があります！\nhttps://yumebokujo.revn.jp/camp/reserve/calendar")
-        except Exception as e:
-            print(f"Error at Yume Bokujo: {e}")
+            
+            # カレンダーの各行（tr）をループして判定
+            rows = page.locator("tr").all()
+            vacant_found = False
+            found_site_type = ""
 
-        # --- 2. リキャンプ館山 (5/2-4) ---
-        try:
-            # なっぷのプラン一覧ページ
-            page.goto("https://www.nap-camp.com/chiba/14639/plans", timeout=60000)
-            # ページ内に「予約する」ボタン、または「×」以外の記号があるか簡易チェック
-            # ※なっぷは非常に複雑なため、空きがあれば出る「予約する」の存在を確認
-            if "予約する" in page.content():
-                send_line("【空きあり】リキャンプ館山に予約可能なプランがあります！\nhttps://www.nap-camp.com/chiba/14639/plans")
-        except Exception as e:
-            print(f"Error at Recamp Tateyama: {e}")
-
-        browser.close()
-
-if __name__ == "__main__":
-    check_campsites()
+            for row in rows:
+                row_text = row.inner_text()
+                # ターゲットとする区分（一般または電源）のみをチェック
+                if "一般" in row_text or "電源" in row_text:
+                    # 「残0サイト」が含まれていなければ、空きがあると判定
+                    # ※土日両方の枠に「残0サイト」がないことを行全体で判定
+                    if "残0サイト" not in row_text and "受付前" not in row_text:
+                        vacant_
