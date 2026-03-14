@@ -17,33 +17,27 @@ def check_campsites():
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
-        # --- 成田ゆめ牧場の空きテスト ---
+        # --- リキャンプ館山の空きテスト ---
         try:
-            print("Checking Narita Yume Farm (Test Mode)...")
-            page.goto("https://yumebokujo.revn.jp/camp/reserve/calendar", timeout=60000)
+            print("Checking Recamp Tateyama (Test Mode)...")
+            # 検証用URL：確実に空きがあると思われる「3月17日から1泊」を指定
+            test_url = "https://www.nap-camp.com/chiba/14639/plans?checkin_date=2026-03-17&stay_count=1"
+            page.goto(test_url, timeout=60000)
             
-            rows = page.locator("tr").all()
-            found = False
-            for row in rows:
-                text = row.inner_text()
-                # 「一般」か「電源」の行をチェック
-                if "一般" in text or "電源" in text:
-                    # その行の中に「残0サイト」ではない枠があるか確認
-                    # ※「受付前」も除外します
-                    if "残0サイト" not in text and "受付前" not in text:
-                        # 念のため、何らかの数字（残数）が含まれているか確認
-                        import re
-                        if re.search(r'\d+', text): 
-                            found = True
-                            site_type = "一般" if "一般" in text else "電源"
-                            break
-
-            if found:
-                send_line(f"【検証成功】成田ゆめ牧場の空きを検知しました！\n区分: {site_type}\n現在のカレンダーで「残0」以外の枠が存在します。")
+            # 検索結果の読み込みを待機
+            page.wait_for_timeout(3000)
+            
+            content = page.content()
+            # 「該当するプランがありません」がなく、かつ「予約する」があるか判定
+            if "該当するプランがありません" not in content and "予約する" in content:
+                send_line("【検証成功】リキャンプ館山の空きを検知しました！\n" + test_url)
             else:
-                print("No vacancy found in the current calendar.")
+                print("No vacancy found for the test date.")
+                # もし空きがない場合は、ログに内容を出して原因を探ります
+                if "該当するプランがありません" in content:
+                    print("Status: Plan not found message exists.")
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error at Recamp Tateyama: {e}")
 
         browser.close()
 
