@@ -1,17 +1,20 @@
 name: Camp Monitor
 on:
   schedule:
-    - cron: '*/20 * * * *' # 20分おきに実行
-  workflow_dispatch: # 手動実行ボタンを表示
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
 
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
+    # ここにNode 24を強制する設定をジョブレベルで追加しました
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4 # v3からv4に更新
-      - uses: actions/setup-python@v5 # v4からv5に更新
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.12' # 最新のPythonに合わせました
+          python-version: '3.12'
       - name: Install dependencies
         run: |
           pip install playwright requests
@@ -20,6 +23,4 @@ jobs:
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-          # 警告にあった「強制的にNode.js 24を使う設定」を念のため追加
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         run: python monitor.py
