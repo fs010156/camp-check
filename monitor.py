@@ -15,19 +15,19 @@ def send_line(message):
 
 def check_campsites():
     with sync_playwright() as p:
-        # ブラウザの偽装設定を「日本国内のPC」に徹底
+        # 日本のPC環境を完全に再現
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             locale="ja-JP",
             timezone_id="Asia/Tokyo",
-            viewport={'width': 1280, 'height': 1200}
+            viewport={'width': 1280, 'height': 2000}
         )
         page = context.new_page()
 
         # --- 1. 成田ゆめ牧場 (4/4-5 監視) ---
-        # (ロジックは安定しているため維持)
         try:
+            print("Checking Narita...")
             page.goto("https://yumebokujo.revn.jp/camp/reserve/calendar", timeout=60000)
             page.wait_for_timeout(5000)
             headers = page.locator("tr.calendar-head th").all()
@@ -41,30 +41,40 @@ def check_campsites():
                         v45 = any("残0" not in cells[idx].inner_text() and any(c.isdigit() for c in cells[idx].inner_text()) for idx in target_indices if "4/5" in headers[idx].inner_text())
                         if v44 and v45:
                             send_line(f"【空き】成田ゆめ牧場\n{cells[0].inner_text()} 4/4-5")
+                            break
         except Exception as e: print(f"Error Narita: {e}")
 
-        # --- 2. リキャンプ館山 5/9-11 強制報告モード ---
+        # --- 2. リキャンプ館山 (5/9-11 テスト) ---
         try:
-            print("--- Recamp Tateyama Diagnosis ---")
+            print("Checking Recamp (Final logic)...")
+            # ★テスト用URL（5/9から2泊）
             test_url = "https://www.nap-camp.com/chiba/14639/plans?checkin_date=2026-05-09&stay_count=2"
             page.goto(test_url, timeout=60000, wait_until="networkidle")
-            page.wait_for_timeout(10000)
-
-            # メインコンテンツの文字を抽出
-            main_area = page.locator("#main_contents, body")
-            visible_text = main_area.first.inner_text()[:300] # 最初の300文字だけ取得
             
-            # 空き判定
-            has_no_plan = "該当するプランがありません" in visible_text
-            # ￥マークや「予約」という文字をより厳しく、かつ広く探す
-            reserve_btn = page.locator("text='予約する'").count()
-            
-            # 【検証用】何が見えていてもいなくても、現在の状況をLINEに飛ばす
-            status_msg = f"【リキャンプ検証中】\nプランなし表示: {has_no_plan}\n予約ボタン数: {reserve_btn}\n取得テキスト冒頭: {visible_text}"
-            send_line(status_msg)
+            # JavaScriptによるボタン描画を15秒間じっくり待つ
+            page.wait_for_timeout(15000)
 
-        except Exception as e:
-            send_line(f"【エラー報告】リキャンプ：{str(e)}")
+            # 判定ロジック：
+            # 1. 「該当するプランがありません」の文字が【無い】こと
+            # 2. ページ内に「予約」または「選択」という文字が含まれる【ボタンやリンク】があること
+            has_no_plan = page.get_by_text("該当するプランがありません").is_visible()
+            
+            # あらゆるボタン・リンク要素から「予約」または「選択」を探す
+            btn_reserve = page.locator("a, button, .c-btn").filter(has_text="予約").count()
+            btn_select = page.locator("a, button, .c-btn").filter(has_text="選択").count()
+
+            print(f"Log Recamp: NoPlan={has_no_plan}, ReserveBtns={btn_reserve}, SelectBtns={btn_select}")
+
+            # 「プランなし」が出ておらず、かつ「予約」か「選択」ボタンが1つ以上あれば検知
+            if not has_no_plan and (btn_reserve > 0 or btn_select > 0):
+                send_line(f"【検証成功】リキャンプ館山：空きを検知しました！\n{test_url}")
+            else:
+                # 最終バックアップ判定：ボタンが見つからなくても、本文に価格（￥）があれば通知
+                body_text = page.locator("body").inner_text()
+                if not has_no_plan and "￥" in body_text:
+                    send_line(f"【検証成功】リキャンプ館山：価格表示により空きを検知！\n{test_url}")
+
+        except Exception as e: print(f"Error Recamp: {e}")
 
         browser.close()
 
