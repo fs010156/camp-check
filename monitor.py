@@ -35,30 +35,51 @@ def check_campsites():
         try:
             print("--- Checking Narita Yume Farm (4/4-5) ---")
             page.goto("https://yumebokujo.revn.jp/camp/reserve/calendar", timeout=60000, wait_until="domcontentloaded")
-            page.wait_for_timeout(5000)
-            headers = page.locator("tr.calendar-head th").all()
-            target_indices = [i for i, h in enumerate(headers) if "4/4" in h.inner_text() or "4/5" in h.inner_text()]
-            
-            if len(target_indices) >= 2:
-                rows = page.locator("tr").all()
-                for row in rows:
-                    cells = row.locator("td").all()
-                    if len(cells) < 1: continue
-                    site_name = cells[0].inner_text()
-                    if "一般" in site_name or "電源" in site_name:
-                        # 4/4と4/5の両方が「残0」ではなく、数字（残数）があるか
-                        v44 = any("残0" not in cells[idx].inner_text() and any(c.isdigit() for c in cells[idx].inner_text()) for idx in target_indices if "4/4" in headers[idx].inner_text())
-                        v45 = any("残0" not in cells[idx].inner_text() and any(c.isdigit() for c in cells[idx].inner_text()) for idx in target_indices if "4/5" in headers[idx].inner_text())
-                        if v44 and v45:
-                            send_line(f"【空き通知】成田ゆめ牧場\n{site_name}：4/4(土)-4/5(日) 両方に空きが出ました！\nhttps://yumebokujo.revn.jp/camp/reserve/calendar")
-                            break
+            # ページ全体の読み込みを少し長めに待つ
+            page.wait_for_timeout(10000)
+
+            # ヘッダー要素の取得（存在確認付き）
+            header_elements = page.locator("tr.calendar-head th")
+            if header_elements.count() == 0:
+                print("Log: Calendar header not found. Site structure might have changed.")
+            else:
+                headers = header_elements.all()
+                target_indices = []
+                for i, h in enumerate(headers):
+                    h_text = h.inner_text().replace('\n', '')
+                    if "4/4" in h_text or "4/5" in h_text:
+                        print(f"Log: Found column '{h_text}' at index {i}")
+                        target_indices.append(i)
+                
+                if len(target_indices) < 2:
+                    print(f"Log: Target columns not fully found (Found: {len(target_indices)}).")
+                else:
+                    rows = page.locator("tr").all()
+                    for row in rows:
+                        cells = row.locator("td").all()
+                        if len(cells) <= max(target_indices): continue
+                        
+                        site_name = cells[0].inner_text()
+                        if "一般" in site_name or "電源" in site_name:
+                            # 各日付の空き状況を確認
+                            v44 = False
+                            v45 = False
+                            for idx in target_indices:
+                                h_text = headers[idx].inner_text()
+                                cell_content = cells[idx].inner_text()
+                                if "残0" not in cell_content and any(c.isdigit() for c in cell_content):
+                                    if "4/4" in h_text: v44 = True
+                                    if "4/5" in h_text: v45 = True
+                            
+                            if v44 and v45:
+                                send_line(f"【至急】成田ゆめ牧場\n{site_name}：4/4(土)-4/5(日) 両方の空きを検知！\nhttps://yumebokujo.revn.jp/camp/reserve/calendar")
+                                break
         except Exception as e:
             print(f"Error Narita: {e}")
 
         # --- 2. リキャンプ館山 (5/2-4 GW連泊監視) ---
         try:
             print("--- Checking Recamp Tateyama (5/2-4) ---")
-            # 本番URL：5/2から2泊を指定
             target_url = "https://www.nap-camp.com/chiba/14639/plans?checkin_date=2026-05-02&stay_count=2"
             page.goto(target_url, timeout=60000, wait_until="networkidle")
             
@@ -67,8 +88,11 @@ def check_campsites():
 
             # 判定：プランなし表示がなく、かつ「予約」や「選択」ボタンが見つかること
             has_no_plan = page.get_by_text("該当するプランがありません").is_visible()
-            btns = page.locator("a, button, .c-btn").filter(has_text="予約").count() + \
-                   page.locator("a, button, .c-btn").filter(has_text="選択").count()
+            
+            # ボタン要素を個別にカウント（エラー回避のため）
+            btn_reserve = page.locator("a, button, .c-btn").filter(has_text="予約").count()
+            btn_select = page.locator("a, button, .c-btn").filter(has_text="選択").count()
+            btns = btn_reserve + btn_select
 
             # バックアップ判定：ボタンがなくても「￥」マークがあれば空きとみなす
             body_text = page.locator("body").inner_text()
@@ -77,4 +101,12 @@ def check_campsites():
             if not has_no_plan and (btns > 0 or has_yen):
                 send_line(f"【至急】リキャンプ館山に空き！\n5/2(土)〜5/4(月) 2泊枠が予約可能です！\n{target_url}")
             else:
-                print(f"Log Recamp: No
+                print(f"Log Recamp: No vacancy (NoPlan={has_no_plan}, Btns={btns}, Yen={has_yen})")
+
+        except Exception as e:
+            print(f"Error Recamp: {e}")
+
+        browser.close()
+
+if __name__ == "__main__":
+    check_campsites()
