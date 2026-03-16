@@ -18,44 +18,64 @@ def check_campsites():
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={'width': 1280, 'height': 800})
 
-        # --- 1. 成田ゆめ牧場 (4/4-5 厳密監視) ---
+        # --- 1. 成田ゆめ牧場 (4/4-5 ピンポイント判定) ---
         try:
+            print("Checking Narita Yume Farm...")
             page.goto("https://yumebokujo.revn.jp/camp/reserve/calendar", timeout=60000)
-            header_cells = page.locator("tr th").all()
-            col_indices = [i for i, c in enumerate(header_cells) if "4/4" in c.inner_text() or "4/5" in c.inner_text()]
+            
+            # 日付の列（4/4, 4/5）が何番目にあるか正確に取得
+            headers = page.locator("tr.calendar-head th").all()
+            target_indices = []
+            for i, h in enumerate(headers):
+                h_text = h.inner_text()
+                if "4/4" in h_text or "4/5" in h_text:
+                    target_indices.append(i)
+            
+            # ターゲット（一般/電源）の行だけをループ
+            # 行を特定するために、各行の最初のtd（サイト名）を確認
             rows = page.locator("tr").all()
             for row in rows:
-                row_text = row.inner_text()
-                if "一般" in row_text or "電源" in row_text:
+                first_cell = row.locator("td").first
+                if first_cell.count() == 0: continue
+                site_name = first_cell.inner_text()
+                
+                if "一般" in site_name or "電源" in site_name:
                     cells = row.locator("td").all()
-                    if all("残0サイト" not in cells[idx-1].inner_text() and "受付前" not in cells[idx-1].inner_text() and cells[idx-1].inner_text().strip() != "" for idx in col_indices):
-                        site_type = "一般" if "一般" in row_text else "電源"
-                        send_line(f"【空きあり】成田ゆめ牧場\n{site_type}サイト 4/4-4/5\nhttps://yumebokujo.revn.jp/camp/reserve/calendar")
+                    
+                    # 特定した列（4/4と4/5）のセルの中身を個別に確認
+                    is_4_4_ok = False
+                    is_4_5_ok = False
+                    
+                    # cells[idx] でピンポイントにアクセス（thとtdのズレを考慮）
+                    for idx in target_indices:
+                        if idx < len(cells):
+                            cell_content = cells[idx].inner_text()
+                            # 「残0」という文字がなく、かつ「数字（残数）」が含まれているかチェック
+                            if "残0" not in cell_content and any(c.isdigit() for c in cell_content):
+                                if "4/4" in headers[idx].inner_text(): is_4_4_ok = True
+                                if "4/5" in headers[idx].inner_text(): is_4_5_ok = True
+                    
+                    # 両方の日に「残0」以外の数字がある場合のみ通知
+                    if is_4_4_ok and is_4_5_ok:
+                        send_line(f"【空きあり】成田ゆめ牧場\n{site_name}：4/4(土)・4/5(日)両方に空きを確認！\nhttps://yumebokujo.revn.jp/camp/reserve/calendar")
                         break
         except Exception as e: print(f"Error at Narita: {e}")
 
         # --- 2. リキャンプ館山 (5/2-4 検索エリア限定監視) ---
         try:
+            print("Checking Recamp Tateyama...")
             tateyama_url = "https://www.nap-camp.com/chiba/14639/plans?checkin_date=2026-05-02&stay_count=2"
             page.goto(tateyama_url, timeout=60000)
             page.wait_for_load_state("networkidle")
             page.wait_for_timeout(10000)
 
-            # 【重要】ページ全体ではなく、検索結果のメインリスト部分（id="main_contents" 等）に絞る
-            # なっぷのプラン一覧を包んでいるコンテナを指定
-            plan_list = page.locator("#main_contents, .c-planList") 
-            
-            if plan_list.count() > 0:
-                list_text = plan_list.first.inner_text()
-                
-                # 「該当プランなし」が含まれず、かつリスト内に「予約」や「￥」がある場合のみ通知
-                if "該当するプランがありません" not in list_text and ("予約" in list_text or "￥" in list_text):
+            # メインコンテンツエリアを特定
+            main_area = page.locator("#main_contents, .c-planListContainer")
+            if main_area.count() > 0:
+                area_text = main_area.first.inner_text()
+                # 絞り込み条件に合致しない時の文言がないこと、かつ「予約」または「￥」があること
+                if "該当するプランがありません" not in area_text and ("予約" in area_text or "￥" in area_text):
                     send_line(f"【空きあり】リキャンプ館山\n5/2(土)〜5/4(月) 2泊枠\n{tateyama_url}")
-                else:
-                    print("Log Recamp: Main list has no available plans.")
-            else:
-                print("Log Recamp: Plan list container not found.")
-
         except Exception as e: print(f"Error at Recamp: {e}")
 
         browser.close()
