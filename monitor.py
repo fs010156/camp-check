@@ -18,70 +18,60 @@ def check_campsites():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            locale="ja-JP", timezone_id="Asia/Tokyo", viewport={'width': 1600, 'height': 2000} # 横幅を広めに確保
+            locale="ja-JP", timezone_id="Asia/Tokyo", viewport={'width': 1600, 'height': 2000}
         )
         page = context.new_page()
 
-        # --- C&C山中湖 (一覧表マトリックス解析) ---
+        # --- C&C山中湖 (最終スッキリ版) ---
         target_days = ["10", "23", "30"] 
         target_sites = ["チョイ広め", "広めのオート", "東屋", "プレミアム"]
         
         try:
-            print("--- C&C Yamanakako: Table Matrix Scan ---")
+            print("--- C&C Table Scan ---")
             page.goto("https://reser.yagai-kikaku.com/cc_reserve/sv_open", timeout=60000)
             page.wait_for_timeout(5000)
 
-            # 「5月」をクリックして切り替え
+            # 5月へ切り替え
             may_btn = page.get_by_role("link", name="5月", exact=True).first
             if may_btn.is_visible():
                 may_btn.click()
                 page.wait_for_timeout(7000)
 
-            # 表（テーブル）の全行を取得
             rows = page.locator("tr").all()
-            if len(rows) < 5:
-                print("Log: Table not loaded correctly.")
-                return
-
-            # 1. 日付ヘッダー行から対象日の「列番号(Index)」を特定
-            # 通常、1行目か2行目に「1 2 3...31」と並んでいる
-            header_row_text = ""
             date_to_column = {}
             
-            for row in rows[:5]: # 上位5行以内に日付ヘッダーがあるはず
+            # 日付ヘッダーから列番号を特定
+            for row in rows[:5]:
                 cells = row.locator("td, th").all()
                 texts = [c.inner_text().strip() for c in cells]
-                if "1" in texts and "2" in texts and "10" in texts:
-                    header_row_text = texts
+                if "10" in texts:
                     for day in target_days:
                         if day in texts:
                             date_to_column[day] = texts.index(day)
                     break
             
-            if not date_to_column:
-                print("Log: Could not identify date columns.")
-                return
+            if not date_to_column: return
 
-            print(f"Log: Identified columns for days: {date_to_column}")
-
-            # 2. 各行をスキャンしてサイト名を特定し、対象列の空きを確認
-            for row in rows:
-                cells = row.locator("td, th").all()
-                if not cells: continue
+            # 空き情報の収集
+            for day, col_idx in date_to_column.items():
+                found_sites = []
+                for row in rows:
+                    cells = row.locator("td, th").all()
+                    if len(cells) <= col_idx: continue
+                    
+                    site_name_full = cells[0].inner_text().strip().split('\n')[0] # 最初の1行(サイト名)だけ取得
+                    
+                    if any(s in site_name_full for s in target_sites):
+                        status = cells[col_idx].inner_text().strip()
+                        if "×" not in status:
+                            found_sites.append(site_name_full)
                 
-                row_header_text = cells[0].inner_text().replace(" ", "").replace("\n", "")
-                
-                # 希望のサイト名が含まれる行か？
-                if any(s in row_header_text for s in target_sites):
-                    # 各対象日（列）をチェック
-                    for day, col_idx in date_to_column.items():
-                        if col_idx < len(cells):
-                            status = cells[col_idx].inner_text().strip()
-                            # 判定： 「×」が含まれていなければ空きとみなす
-                            if "×" not in status:
-                                date_label = "5/10(テスト)" if day == "10" else f"5/{day}"
-                                send_line(f"【検証成功】C&C山中湖空き！\n日程: {date_label}\nサイト: {row_header_text}\n状況: [{status if status else '空欄(◯)'}]\nhttps://reser.yagai-kikaku.com/cc_reserve/sv_open")
-                                # 同じ日の重複通知を避けるため、見つかったら次の日へ
+                # その日の空きがあればLINE送信（1日1メッセージに集約）
+                if found_sites:
+                    day_label = "5/10(テ)" if day == "10" else f"5/{day}(土)"
+                    sites_str = "\n・".join(found_sites[:5]) # 最大5つまで表示
+                    msg = f"【C&C山中湖 空きあり】\n日程: {day_label}\nサイト:\n・{sites_str}\n\n予約はこちら:\nhttps://reser.yagai-kikaku.com/cc_reserve/sv_open"
+                    send_line(msg)
             
         except Exception as e:
             print(f"Error C&C: {e}")
