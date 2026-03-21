@@ -18,11 +18,11 @@ def check_campsites():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            locale="ja-JP", timezone_id="Asia/Tokyo", viewport={'width': 1600, 'height': 2000}
+            locale="ja-JP", timezone_id="Asia/Tokyo", viewport={'width': 1600, 'height': 2500}
         )
         page = context.new_page()
 
-        # --- C&C山中湖 (テキスト抽出の厳格化版) ---
+        # --- C&C山中湖 (判定ロジック緩和版) ---
         target_days = ["10", "23", "30"] 
         target_sites = ["チョイ広め", "広めのオート", "東屋", "プレミアム"]
         
@@ -35,52 +35,56 @@ def check_campsites():
             may_btn = page.get_by_role("link", name="5月", exact=True).first
             if may_btn.is_visible():
                 may_btn.click()
-                page.wait_for_timeout(7000)
+                page.wait_for_timeout(8000)
+            else:
+                print("Log: May link not found.")
 
             rows = page.locator("tr").all()
             date_to_column = {}
             
-            # 日付ヘッダーから正確な列位置を特定
-            for row in rows[:10]: # ヘッダー探索範囲を少し広めに
+            # 日付ヘッダー特定
+            for row in rows[:15]:
                 cells = row.locator("td, th").all()
                 texts = [c.inner_text().strip() for c in cells]
-                if "10" in texts and "11" in texts:
+                if "10" in texts and "20" in texts:
                     for day in target_days:
                         if day in texts:
                             date_to_column[day] = texts.index(day)
                     break
             
             if not date_to_column:
-                print("Log: Date columns not found.")
+                print("Log: Date header not found. Check if page is loaded.")
                 return
 
-            # 空き情報の抽出と通知
-            # 日付ごとにまとめて通知する
+            print(f"Log: Target columns -> {date_to_column}")
+
+            # 空き情報の抽出
             for day, col_idx in date_to_column.items():
-                available_list = []
+                available_found = []
                 for row in rows:
                     cells = row.locator("td, th").all()
                     if len(cells) <= col_idx: continue
                     
-                    # サイト名のセルから「余計な文字」を排除
-                    # .split() を使い、最初の単語（サイト名）だけを抽出
-                    raw_name = cells[0].inner_text().strip()
-                    clean_name = raw_name.split('\n')[0].split('\t')[0].strip()
+                    # 比較用に「すべての空白と改行を除去した名前」を作る
+                    raw_text = cells[0].inner_text()
+                    clean_name_for_match = raw_text.replace(" ", "").replace("\n", "").replace("\t", "").replace("　", "")
                     
-                    if any(s in clean_name for s in target_sites):
+                    # 表示用に「最初の1行だけ」を抜き出す
+                    display_name = raw_text.strip().split('\n')[0].strip()
+                    
+                    # キーワードが含まれているか判定
+                    if any(s in clean_name_for_match for s in target_sites):
                         status = cells[col_idx].inner_text().strip()
-                        # 「×」でも「定休日」でもなければ空きと判定
+                        # ×や定休日以外を「空き」とみなす
                         if status != "×" and "定休日" not in status:
-                            available_list.append(clean_name)
+                            available_found.append(display_name)
                 
-                if available_list:
-                    day_label = "5/10(テ)" if day == "10" else f"5/{day}(土)"
-                    unique_sites = list(dict.fromkeys(available_list)) # 重複削除
-                    sites_msg = "\n・".join(unique_sites)
-                    
-                    msg = f"【C&C山中湖 空きあり】\n日程: {day_label}\nサイト:\n・{sites_msg}\n\n予約はこちら:\nhttps://reser.yagai-kikaku.com/cc_reserve/sv_open"
+                if available_found:
+                    day_label = "5/10(テスト)" if day == "10" else f"5/{day}(土)"
+                    unique_list = list(dict.fromkeys(available_found))
+                    msg = f"【C&C山中湖 空き！】\n日程: {day_label}\nサイト:\n・" + "\n・".join(unique_list) + "\n\n予約:\nhttps://reser.yagai-kikaku.com/cc_reserve/sv_open"
                     send_line(msg)
-                    print(f"Log: Sent notification for {day_label}")
+                    print(f"Log: Success for {day_label}")
 
         except Exception as e:
             print(f"Error C&C: {e}")
