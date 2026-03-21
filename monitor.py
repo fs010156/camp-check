@@ -22,12 +22,12 @@ def check_campsites():
         )
         page = context.new_page()
 
-        # --- C&C山中湖 (最終スッキリ版) ---
+        # --- C&C山中湖 (テキスト抽出の厳格化版) ---
         target_days = ["10", "23", "30"] 
         target_sites = ["チョイ広め", "広めのオート", "東屋", "プレミアム"]
         
         try:
-            print("--- C&C Table Scan ---")
+            print("--- C&C Table Scan Start ---")
             page.goto("https://reser.yagai-kikaku.com/cc_reserve/sv_open", timeout=60000)
             page.wait_for_timeout(5000)
 
@@ -40,39 +40,48 @@ def check_campsites():
             rows = page.locator("tr").all()
             date_to_column = {}
             
-            # 日付ヘッダーから列番号を特定
-            for row in rows[:5]:
+            # 日付ヘッダーから正確な列位置を特定
+            for row in rows[:10]: # ヘッダー探索範囲を少し広めに
                 cells = row.locator("td, th").all()
                 texts = [c.inner_text().strip() for c in cells]
-                if "10" in texts:
+                if "10" in texts and "11" in texts:
                     for day in target_days:
                         if day in texts:
                             date_to_column[day] = texts.index(day)
                     break
             
-            if not date_to_column: return
+            if not date_to_column:
+                print("Log: Date columns not found.")
+                return
 
-            # 空き情報の収集
+            # 空き情報の抽出と通知
+            # 日付ごとにまとめて通知する
             for day, col_idx in date_to_column.items():
-                found_sites = []
+                available_list = []
                 for row in rows:
                     cells = row.locator("td, th").all()
                     if len(cells) <= col_idx: continue
                     
-                    site_name_full = cells[0].inner_text().strip().split('\n')[0] # 最初の1行(サイト名)だけ取得
+                    # サイト名のセルから「余計な文字」を排除
+                    # .split() を使い、最初の単語（サイト名）だけを抽出
+                    raw_name = cells[0].inner_text().strip()
+                    clean_name = raw_name.split('\n')[0].split('\t')[0].strip()
                     
-                    if any(s in site_name_full for s in target_sites):
+                    if any(s in clean_name for s in target_sites):
                         status = cells[col_idx].inner_text().strip()
-                        if "×" not in status:
-                            found_sites.append(site_name_full)
+                        # 「×」でも「定休日」でもなければ空きと判定
+                        if status != "×" and "定休日" not in status:
+                            available_list.append(clean_name)
                 
-                # その日の空きがあればLINE送信（1日1メッセージに集約）
-                if found_sites:
+                if available_list:
                     day_label = "5/10(テ)" if day == "10" else f"5/{day}(土)"
-                    sites_str = "\n・".join(found_sites[:5]) # 最大5つまで表示
-                    msg = f"【C&C山中湖 空きあり】\n日程: {day_label}\nサイト:\n・{sites_str}\n\n予約はこちら:\nhttps://reser.yagai-kikaku.com/cc_reserve/sv_open"
+                    unique_sites = list(dict.fromkeys(available_list)) # 重複削除
+                    sites_msg = "\n・".join(unique_sites)
+                    
+                    msg = f"【C&C山中湖 空きあり】\n日程: {day_label}\nサイト:\n・{sites_msg}\n\n予約はこちら:\nhttps://reser.yagai-kikaku.com/cc_reserve/sv_open"
                     send_line(msg)
-            
+                    print(f"Log: Sent notification for {day_label}")
+
         except Exception as e:
             print(f"Error C&C: {e}")
 
