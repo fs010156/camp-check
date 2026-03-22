@@ -23,55 +23,63 @@ def check_campsites():
         page = context.new_page()
 
         try:
-            print("--- C&C Yamanakako: Simple Scan Start ---")
+            print("--- C&C Yamanakako: Final Row Scan Start ---")
             page.goto("https://reser.yagai-kikaku.com/cc_reserve/sv_open", timeout=60000)
             page.wait_for_timeout(5000)
 
-            # 5月へ切り替え
-            page.get_by_role("link", name="5月", exact=True).first.click()
-            page.wait_for_timeout(8000)
+            # 「5月」をクリック
+            may_link = page.get_by_role("link", name="5月", exact=True).first
+            if may_link.is_visible():
+                may_link.click()
+                page.wait_for_timeout(10000)
 
-            # 5/10の列番号を特定（再トライ）
             rows = page.locator("tr").all()
             target_col = -1
-            for row in rows[:15]:
-                texts = [c.inner_text().strip() for c in row.locator("td, th").all()]
-                if "10" in texts:
-                    target_col = texts.index("10")
-                    break
+            
+            # 【重要】日付ヘッダー行（1, 2, 3...が並んでいる行）を正しく探す
+            for row in rows:
+                cells = row.locator("td, th").all()
+                texts = [c.inner_text().strip() for c in cells]
+                # 「1」「2」「3」がこの順番で含まれていれば、それが日付ヘッダー
+                if "1" in texts and "2" in texts and "3" in texts:
+                    if "10" in texts:
+                        target_col = texts.index("10")
+                        print(f"Log: Found Date Header! Day 10 is at column {target_col}")
+                        break
             
             if target_col == -1:
-                print("Log: Could not find column for day 10.")
+                print("Log: Failed to find the date header column.")
                 return
 
-            # 希望サイトのリスト
+            # 希望サイト
             target_keywords = ["チョイ広め", "広めのオート", "東屋", "プレミアム"]
-            found_list = []
+            final_results = []
 
             for row in rows:
                 cells = row.locator("td").all()
                 if len(cells) <= target_col: continue
                 
-                site_name = cells[0].inner_text().split('\n')[0].strip()
+                # サイト名を取得（最初の改行まで）
+                full_site_name = cells[0].inner_text().strip()
+                clean_site_name = full_site_name.split('\n')[0].strip()
                 
-                # 指定キーワードが含まれるサイトか？
-                if any(kw in site_name for kw in target_keywords):
+                if any(kw in clean_site_name for kw in target_keywords):
                     status = cells[target_col].inner_text().strip()
-                    
-                    # 判定：「×」が含まれておらず、かつ「定休日」でもない場合
-                    # (C&Cの空欄は「予約可能」を意味するため)
+                    # 「×」という文字が全く含まれていないことを条件にする
                     if "×" not in status and "定休日" not in status:
-                        found_list.append(site_name)
+                        final_results.append(clean_site_name)
             
-            if found_list:
-                msg = f"【C&C山中湖 検証成功】\n日程: 5/10(テスト)\nサイト:\n・" + "\n・".join(list(dict.fromkeys(found_list)))
+            if final_results:
+                # 重複を排除してメッセージ作成
+                unique_sites = list(dict.fromkeys(final_results))
+                msg = "【C&C山中湖 検証成功】\n日程: 5/10(テスト)\nサイト:\n・" + "\n・".join(unique_sites)
                 send_line(msg)
-                print("Log: Success notification sent.")
+                print("Log: Notification sent successfully.")
             else:
-                print("Log: No vacancy found for day 10.")
+                print("Log: No vacant sites found for Day 10 in the identified column.")
 
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error occurred: {e}")
 
         browser.close()
 
