@@ -18,16 +18,16 @@ def check_campsites():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            locale="ja-JP", timezone_id="Asia/Tokyo", viewport={'width': 1600, 'height': 2500}
+            locale="ja-JP", timezone_id="Asia/Tokyo", viewport={'width': 1600, 'height': 3000}
         )
         page = context.new_page()
 
-        # --- C&C山中湖 (判定ロジック緩和版) ---
+        # --- C&C山中湖 (誤検知ガード強化版) ---
         target_days = ["10", "23", "30"] 
-        target_sites = ["チョイ広め", "広めのオート", "東屋", "プレミアム"]
+        target_keywords = ["チョイ広め", "広めのオート", "東屋", "プレミアム"]
         
         try:
-            print("--- C&C Table Scan Start ---")
+            print("--- C&C Table Scan Start (Strict Mode) ---")
             page.goto("https://reser.yagai-kikaku.com/cc_reserve/sv_open", timeout=60000)
             page.wait_for_timeout(5000)
 
@@ -36,55 +36,57 @@ def check_campsites():
             if may_btn.is_visible():
                 may_btn.click()
                 page.wait_for_timeout(8000)
-            else:
-                print("Log: May link not found.")
 
             rows = page.locator("tr").all()
             date_to_column = {}
             
-            # 日付ヘッダー特定
-            for row in rows[:15]:
+            # 1. 日付ヘッダーの特定（9, 10, 11が並んでいる行を探す）
+            for row in rows[:20]:
                 cells = row.locator("td, th").all()
                 texts = [c.inner_text().strip() for c in cells]
-                if "10" in texts and "20" in texts:
+                if "9" in texts and "10" in texts and "11" in texts:
                     for day in target_days:
                         if day in texts:
                             date_to_column[day] = texts.index(day)
                     break
             
             if not date_to_column:
-                print("Log: Date header not found. Check if page is loaded.")
+                print("Log: Could not find strict date header.")
                 return
 
-            print(f"Log: Target columns -> {date_to_column}")
-
-            # 空き情報の抽出
+            # 2. 空き情報の精査
             for day, col_idx in date_to_column.items():
-                available_found = []
+                available_sites = []
                 for row in rows:
                     cells = row.locator("td, th").all()
                     if len(cells) <= col_idx: continue
                     
-                    # 比較用に「すべての空白と改行を除去した名前」を作る
-                    raw_text = cells[0].inner_text()
-                    clean_name_for_match = raw_text.replace(" ", "").replace("\n", "").replace("\t", "").replace("　", "")
+                    # サイト名のセル（0番目）を厳格にチェック
+                    site_cell_text = cells[0].inner_text().strip()
+                    # 改行で分割して1行目（純粋な名前部分）だけ見る
+                    clean_name = site_cell_text.split('\n')[0].strip()
                     
-                    # 表示用に「最初の1行だけ」を抜き出す
-                    display_name = raw_text.strip().split('\n')[0].strip()
+                    # NGワードが含まれていたら無視
+                    if any(ng in clean_name for ng in ["ログイン", "2026年", "前月", "翌月"]):
+                        continue
                     
-                    # キーワードが含まれているか判定
-                    if any(s in clean_name_for_match for s in target_sites):
+                    # 希望キーワードが含まれているか
+                    if any(kw in clean_name for kw in target_keywords):
                         status = cells[col_idx].inner_text().strip()
-                        # ×や定休日以外を「空き」とみなす
+                        
+                        # 空き判定： 「×」がなく、かつ「定休日」でもなく、かつ「空欄」か「△」か「○」がある
+                        # status.strip() が空（""）の場合も C&Cでは空き(○)を意味することが多いため許可
                         if status != "×" and "定休日" not in status:
-                            available_found.append(display_name)
+                            if status == "" or any(mark in status for mark in ["○", "△", "予約"]):
+                                available_sites.append(clean_name)
                 
-                if available_found:
+                if available_sites:
                     day_label = "5/10(テスト)" if day == "10" else f"5/{day}(土)"
-                    unique_list = list(dict.fromkeys(available_found))
-                    msg = f"【C&C山中湖 空き！】\n日程: {day_label}\nサイト:\n・" + "\n・".join(unique_list) + "\n\n予約:\nhttps://reser.yagai-kikaku.com/cc_reserve/sv_open"
+                    unique_sites = list(dict.fromkeys(available_sites))
+                    
+                    msg = f"【C&C山中湖 空きあり】\n日程: {day_label}\nサイト:\n・" + "\n・".join(unique_sites) + "\n\n予約:\nhttps://reser.yagai-kikaku.com/cc_reserve/sv_open"
                     send_line(msg)
-                    print(f"Log: Success for {day_label}")
+                    print(f"Log: Match found for {day_label}")
 
         except Exception as e:
             print(f"Error C&C: {e}")
