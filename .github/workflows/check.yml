@@ -2,13 +2,12 @@ name: Camp Monitor
 
 on:
   schedule:
-    # 10分ごとに実行 (UTC時間)
-    # 日本時間の 00:00, 00:10, 00:20... と実行されます
+    # 10分おきに設定（UTC 00, 10, 20, 30, 40, 50分）
     - cron: '*/10 * * * *'
-  workflow_dispatch: # 手動実行ボタンも残しておきます
+  workflow_dispatch:
 
 jobs:
-  build:
+  run-monitor: # 以前の名前に戻しました
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
