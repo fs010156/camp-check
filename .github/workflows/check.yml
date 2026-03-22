@@ -1,25 +1,31 @@
 name: Camp Monitor
+
 on:
   schedule:
-    - cron: '*/20 * * * *'
-  workflow_dispatch:
+    # 10分ごとに実行 (UTC時間)
+    # 日本時間の 00:00, 00:10, 00:20... と実行されます
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # 手動実行ボタンも残しておきます
 
 jobs:
-  run-monitor:
+  build:
     runs-on: ubuntu-latest
-    # ここにNode 24を強制する設定をジョブレベルで追加しました
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
+
       - name: Install dependencies
         run: |
-          pip install playwright requests
+          python -m pip install --upgrade pip
+          pip install requests playwright
           playwright install chromium
-      - name: Run Script
+
+      - name: Run monitor
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
